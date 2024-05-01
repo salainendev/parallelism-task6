@@ -52,11 +52,11 @@ double linearInterpolation(double x, double x1, double y1, double x2, double y2)
 double oneIteraton(Data<double>& prevmatrix,Data<double>& curmatrix,int N){
     
     double error = 0.0;
-      // Копируем данные на устройство
-    #pragma acc enter data copyin(prevmatrix.arr[0:N*N], curmatrix.arr[0:N*N])
+    // Копируем данные на устройство
+    #pragma acc enter data copyin(curmatrix.arr[0:N*N], prevmatrix.arr[0:N*N])
 
-    // Обновляем данные на устройстве перед выполнением операций
-    #pragma acc update device(prevmatrix.arr[0:N*N], curmatrix.arr[0:N*N])
+    // Обновляем данные на устройстве
+    #pragma acc update device(curmatrix.arr[0:N*N], prevmatrix.arr[0:N*N])
     
 
     #pragma acc parallel loop reduction(max:error)
@@ -70,11 +70,11 @@ double oneIteraton(Data<double>& prevmatrix,Data<double>& curmatrix,int N){
         }
     }
 
-    // Обновляем данные на хосте после выполнения операций
+      // Обновляем данные на хосте после выполнения итерации
     #pragma acc update self(curmatrix.arr[0:N*N])
 
-    // Освобождаем память на устройстве
-    #pragma acc exit data delete(prevmatrix.arr[0:N*N], curmatrix.arr[0:N*N])
+    // Освобождаем память, занятую для массивов на устройстве
+    #pragma acc exit data delete(curmatrix.arr, prevmatrix.arr)
 
 
     return error;
@@ -144,14 +144,43 @@ void swap(Data<double>& curmatrix, Data<double>& prevmatrix, int N){
 
 int main(){
     int N = 16;
-    int accuracy = 1e-6;
+    double accuracy = 1e-6;
     int count_iter = 100;
     Data<double> curmatrix(N*N);
     initMatrices(std::ref(curmatrix),N);
     Data<double> prevmatrix(N*N);
     swap(std::ref(curmatrix),std::ref(prevmatrix),N);
    
-    for (size_t i = 0; i < N; i++)
+    // for (size_t i = 0; i < N; i++)
+    // {
+    //     for (size_t j = 0; j < N; j++)
+    //     {
+    //         /* code */
+    //         std::cout << curmatrix.arr[i*N+j] << ' ';
+            
+    //     }
+    //     std::cout << std::endl;
+    // }
+    // for (size_t i = 0; i < N; i++)
+    // {
+    //     for (size_t j = 0; j < N; j++)
+    //     {
+    //         /* code */
+    //         std::cout << prevmatrix.arr[i*N+j] << ' ';
+            
+    //     }
+    //     std::cout << std::endl;
+    // }
+    double error = 999.0;
+    int iter = 0;
+    while (count_iter>iter && error > accuracy)
+    {
+        error = oneIteraton(std::ref(prevmatrix),std::ref(curmatrix),N);
+        swap(std::ref(curmatrix),std::ref(prevmatrix),N);
+        std::cout << iter << ' ' << error<< std::endl;
+        iter++;
+    }
+       for (size_t i = 0; i < N; i++)
     {
         for (size_t j = 0; j < N; j++)
         {
@@ -171,6 +200,5 @@ int main(){
         }
         std::cout << std::endl;
     }
-    
 
 }

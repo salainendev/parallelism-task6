@@ -12,5 +12,9 @@ gpu:
 multi:
 	pgc++ -acc=multicore $(ARGS) -o $@ task6.cpp
 
+gpuexp:
+	pgc++ -acc -gpu=ccall -lstdc++ $(ARGS) -o $@ task6exp.cpp
+
+
 clean:all
 	rm cpu gpu multi

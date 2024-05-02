@@ -8,12 +8,12 @@ all:
 cpu:
 	pgc++ -acc=host $(ARGS) -o $@ task6.cpp
 gpu:
-	pgc++ -acc=gpu $(ARGS) -o $@ task6.cpp
+	pgc++ -acc=gpu $(ARGS) -o gpu task6.cpp
 multi:
 	pgc++ -acc=multicore $(ARGS) -o $@ task6.cpp
 
 gpuexp:
-	pgc++ -acc -gpu=ccall -lstdc++ $(ARGS) -o $@ task6exp.cpp
+	pgc++ -acc -lstdc++ $(ARGS) -o $@ task6exp.cpp
 
 
 clean:all

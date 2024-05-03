@@ -17,18 +17,10 @@ double linearInterpolation(double x, double x1, double y1, double x2, double y2)
     return y1 + ((x - x1) * (y2 - y1) / (x2 - x1));
 }
 
-class Array
-    {
-      private:
-        /// Length of the data array
-        int len;
-        /// Data array
-    
-      public:
-        double *arr;
-        /// Class constructor
-        Array(int N) : len(N*N),arr(new double[N*N])
-        {
+
+
+
+void initMatrix(double* &arr ,int N){
         
           arr[0] = 10.0;
           arr[N-1] = 20.0;
@@ -42,25 +34,12 @@ class Array
             arr[i*N+(N-1)] = linearInterpolation(i,0.0,arr[N-1],N-1,arr[(N-1)*N + (N-1)]);
             arr[(N-1)*N+i] = linearInterpolation(i,0.0,arr[(N-1)*N],N-1,arr[(N-1)*N + (N-1)]);
         }
-        
-        
-    
-    #pragma acc enter data create(this,arr[0:len])
-        }
-
-        /// Class destructor
-    ~Array() {
-        // Удаление данных на устройстве
-        #pragma acc exit data delete(arr)
-        
-        delete[] arr;
-    }
-    };
+}
 
 
 
 
-void saveMatrixToFile(const Array& matrix, int N, const std::string& filename) {
+void saveMatrixToFile(const double* matrix, int N, const std::string& filename) {
     std::ofstream outputFile(filename);
     if (!outputFile.is_open()) {
         std::cerr << "Unable to open file " << filename << " for writing." << std::endl;
@@ -73,13 +52,14 @@ void saveMatrixToFile(const Array& matrix, int N, const std::string& filename) {
     // Записываем матрицу в файл с выравниванием столбцов
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
-            outputFile << std::setw(fieldWidth) << std::fixed << std::setprecision(4) << matrix.arr[i * N + j];
+            outputFile << std::setw(fieldWidth) << std::fixed << std::setprecision(4) << matrix[i * N + j];
         }
         outputFile << std::endl;
     }
 
     outputFile.close();
 }
+
 
 int main(int argc, char const *argv[])
 {
@@ -113,38 +93,40 @@ int main(int argc, char const *argv[])
     double error = 1.0;
     int iter = 0;
 
-    Array curmatrix(N);
-    Array prevmatrix(N);
-    #pragma acc enter data create(error)
-    #pragma acc update device(curmatrix.arr[0:N*N],prevmatrix.arr[0:N*N],error) // инициализация матриц на гпу
-
-
+    double* curmatrix = new double[N*N];
+    double* prevmatrix = new double[N*N];
+    initMatrix(curmatrix,N);
+    initMatrix(prevmatrix,N);
+   
     auto start = std::chrono::high_resolution_clock::now();
+    
+    #pragma acc enter data copyin(error,prevmatrix[0:N*N],curmatrix[0:N*N])
+    
     while (iter < countIter && iter<10000000 && error > accuracy){
             error = 0.0;
             #pragma acc update device(error)
-            #pragma acc parallel loop reduction(max:error)
+            #pragma acc parallel loop reduction(max:error) present(curmatrix,prevmatrix)
             for (size_t i = 1; i < N-1; i++)
             {
                 #pragma acc loop
                 for (size_t j = 1; j < N-1; j++)
                 {
-                    curmatrix.arr[i*N+j]  = 0.25 * (prevmatrix.arr[i*N+j+1] + prevmatrix.arr[i*N+j-1] + prevmatrix.arr[(i-1)*N+j] + prevmatrix.arr[(i+1)*N+j]);
-                    error = fmax(error,fabs(curmatrix.arr[i*N+j]-prevmatrix.arr[i*N+j]));
+                    curmatrix[i*N+j]  = 0.25 * (prevmatrix[i*N+j+1] + prevmatrix[i*N+j-1] + prevmatrix[(i-1)*N+j] + prevmatrix[(i+1)*N+j]);
+                    error = fmax(error,fabs(curmatrix[i*N+j]-prevmatrix[i*N+j]));
                 }
             }
 
-            #pragma acc parallel loop 
-            for (size_t i = 1; i < N-1; i++)
-            {
-                #pragma acc loop
-                for (size_t j = 0; j < N-1; j++)
-                {
-                    prevmatrix.arr[i*N+j] = curmatrix.arr[i*N+j];
-                }
-                
-            }
+    
             #pragma acc update self(error)
+            
+
+            double* temp = prevmatrix;
+            prevmatrix = curmatrix;
+            curmatrix = temp;
+            
+
+            
+
             if ((iter+1)%100 == 0){
             std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
 
@@ -154,22 +136,24 @@ int main(int argc, char const *argv[])
 
 
     }
+    
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
     auto time_s = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
                 
-    #pragma acc update self(prevmatrix.arr[0:N*N],curmatrix.arr[0:N*N],error)
+    
     std::cout<<"time: " << time_s<<" error: "<<error << " iterarion: " << iter<<std::endl;
     // std::cout << std::endl;
     // for (size_t i = 0; i < N; i++)
+    #pragma acc update self(curmatrix[0:N*N])
     if (N <=13){
-
+        
         for (size_t i = 0; i < N; i++)
         {
             for (size_t j = 0; j < N; j++)
             {
                 /* code */
-                std::cout << curmatrix.arr[i*N+j] << ' ';
+                std::cout << curmatrix[i*N+j] << ' ';
                 
             }
             std::cout << std::endl;

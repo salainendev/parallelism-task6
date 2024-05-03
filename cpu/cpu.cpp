@@ -6,7 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include </opt/nvidia/hpc_sdk/Linux_x86_64/23.11/cuda/12.3/include/nvtx3/nvToolsExt.h>
-#include <omp.h>
+#include <chrono>
 namespace opt = boost::program_options;
 
 
@@ -34,7 +34,6 @@ class Array
           arr[N-1] = 20.0;
           arr[(N-1)*N + (N-1)] = 30.0;
           arr[(N-1)*N] = 20.0;
-              // инициализируем и потом сразу отправим на девайс
         for (size_t i = 1; i < N-1; i++)
         {
             arr[0*N+i] = linearInterpolation(i,0.0,arr[0],N-1,arr[N-1]);
@@ -43,15 +42,11 @@ class Array
             arr[(N-1)*N+i] = linearInterpolation(i,0.0,arr[(N-1)*N],N-1,arr[(N-1)*N + (N-1)]);
         }
         
-        
-    
-    #pragma acc enter data create(this,arr[0:len])
         }
 
         /// Class destructor
     ~Array() {
         // Удаление данных на устройстве
-        #pragma acc exit data delete(arr)
         
         delete[] arr;
     }
@@ -115,14 +110,13 @@ int main(int argc, char const *argv[])
 
     Array curmatrix(N);
     Array prevmatrix(N);
-    #pragma acc enter data create(error)
-    #pragma acc update device(curmatrix.arr[0:N*N],prevmatrix.arr[0:N*N],error) // инициализация матриц на гпу
+    
 
 
-    double start = omp_get_wtime();
+    auto start = std::chrono::high_resolution_clock::now();
     while (iter < countIter && iter<10000000 && error > accuracy){
             error = 0.0;
-            #pragma acc update device(error)
+            
             #pragma acc parallel loop reduction(max:error)
             for (size_t i = 1; i < N-1; i++)
             {
@@ -144,7 +138,8 @@ int main(int argc, char const *argv[])
                 }
                 
             }
-            #pragma acc update self(error)
+            
+            
             if ((iter+1)%100 == 0){
             std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
 
@@ -154,10 +149,12 @@ int main(int argc, char const *argv[])
 
 
     }
-    double end = omp_get_wtime();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto time_s = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+    
                 
-                #pragma acc update self(prevmatrix.arr[0:N*N],curmatrix.arr[0:N*N],error)
-                std::cout<<"time: " << end - start<<" error: "<<error << " iterarion: " << iter<<std::endl;
+                
+                std::cout<<"time: " << time_s<<" error: "<<error << " iterarion: " << iter<<std::endl;
                 // std::cout << std::endl;
                 // for (size_t i = 0; i < N; i++)
                 if (N <=13){
@@ -176,7 +173,7 @@ int main(int argc, char const *argv[])
     saveMatrixToFile(std::ref(curmatrix), N , "matrix.txt");
 
 
-    #pragma acc exit data delete(error)
+    
     return 0;
 }
 

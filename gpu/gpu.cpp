@@ -6,7 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include </opt/nvidia/hpc_sdk/Linux_x86_64/23.11/cuda/12.3/include/nvtx3/nvToolsExt.h>
-#include <omp.h>
+#include <chrono>
 namespace opt = boost::program_options;
 
 
@@ -119,7 +119,7 @@ int main(int argc, char const *argv[])
     #pragma acc update device(curmatrix.arr[0:N*N],prevmatrix.arr[0:N*N],error) // инициализация матриц на гпу
 
 
-    double start = omp_get_wtime();
+    auto start = std::chrono::high_resolution_clock::now();
     while (iter < countIter && iter<10000000 && error > accuracy){
             error = 0.0;
             #pragma acc update device(error)
@@ -154,10 +154,12 @@ int main(int argc, char const *argv[])
 
 
     }
-    double end = omp_get_wtime();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = end - start;
+    auto time_s = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
                 
     #pragma acc update self(prevmatrix.arr[0:N*N],curmatrix.arr[0:N*N],error)
-    std::cout<<"time: " << end - start<<" error: "<<error << " iterarion: " << iter<<std::endl;
+    std::cout<<"time: " << time_s<<" error: "<<error << " iterarion: " << iter<<std::endl;
     // std::cout << std::endl;
     // for (size_t i = 0; i < N; i++)
     if (N <=13){

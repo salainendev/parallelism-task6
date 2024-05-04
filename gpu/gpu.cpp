@@ -104,11 +104,11 @@ int main(int argc, char const *argv[])
     
     while (iter < countIter && iter<10000000 && error > accuracy){
             error = 0.0;
-            #pragma acc update device(error)
-            #pragma acc parallel loop reduction(max:error) present(curmatrix,prevmatrix)
+            #pragma acc update device(error) // провереное эксперементальным путём оптимальное количество банд и размер вектора для расчёта матрицы 1024^2
+            #pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(1024) reduction(max:error) present(curmatrix,prevmatrix)
             for (size_t i = 1; i < N-1; i++)
             {
-                #pragma acc loop
+                
                 for (size_t j = 1; j < N-1; j++)
                 {
                     curmatrix[i*N+j]  = 0.25 * (prevmatrix[i*N+j+1] + prevmatrix[i*N+j-1] + prevmatrix[(i-1)*N+j] + prevmatrix[(i+1)*N+j]);
@@ -127,7 +127,7 @@ int main(int argc, char const *argv[])
 
             
 
-            if ((iter+1)%100 == 0){
+            if ((iter+1)%10000 == 0){
             std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
 
             }
@@ -139,7 +139,7 @@ int main(int argc, char const *argv[])
     
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
-    auto time_s = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+    auto time_s = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
                 
     
     std::cout<<"time: " << time_s<<" error: "<<error << " iterarion: " << iter<<std::endl;

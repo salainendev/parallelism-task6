@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
-#include </opt/nvidia/hpc_sdk/Linux_x86_64/23.11/cuda/12.3/include/nvtx3/nvToolsExt.h>
 #include <chrono>
 namespace opt = boost::program_options;
 
@@ -18,7 +17,7 @@ double linearInterpolation(double x, double x1, double y1, double x2, double y2)
 }
 
 
-void saveMatrixToFile(const double* matrix, int N, const std::string& filename) {
+void saveMatrixToFile(const std::unique_ptr<double[]>& matrix, int N, const std::string& filename) {
     std::ofstream outputFile(filename);
     if (!outputFile.is_open()) {
         std::cerr << "Unable to open file " << filename << " for writing." << std::endl;
@@ -40,7 +39,7 @@ void saveMatrixToFile(const double* matrix, int N, const std::string& filename) 
 }
 
 
-void initMatrix(double* &arr ,int N){
+void initMatrix(std::unique_ptr<double[]> &arr ,int N){
         
           arr[0] = 10.0;
           arr[N-1] = 20.0;
@@ -64,9 +63,9 @@ int main(int argc, char const *argv[])
     // парсим аргументы
     opt::options_description desc("опции");
     desc.add_options()
-        ("accuracy",opt::value<double>(),"точность")
-        ("cellsCount",opt::value<int>(),"размер матрицы")
-        ("iterCount",opt::value<int>(),"количество операций")
+        ("accuracy",opt::value<double>()->default_value(1e-6),"точность")
+        ("cellsCount",opt::value<int>()->default_value(256),"размер матрицы")
+        ("iterCount",opt::value<int>()->default_value(1000000),"количество операций")
         ("help","помощь")
     ;
 
@@ -92,36 +91,46 @@ int main(int argc, char const *argv[])
     int iter = 0;
 
     
-    double* curmatrix = new double[N*N];
-    double* prevmatrix = new double[N*N];
-    initMatrix(curmatrix,N);
-    initMatrix(prevmatrix,N);
+    std::unique_ptr<double[]> A(new double[N*N]);
+    std::unique_ptr<double[]> Anew(new double[N*N]);
+    initMatrix(A,N);
+    initMatrix(Anew,N);
+    double* prevmatrix = Anew.get();
+    double* curmatrix = A.get();
 
 
     auto start = std::chrono::high_resolution_clock::now();
     while (iter < countIter && iter<10000000 && error > accuracy){
-            error = 0.0;
             // оптимальное количество гангов и размер векторов для расчёта матрицы 1024^2 
-            #pragma acc parallel loop independent collapse(2) vector vector_length(16) gang num_gangs(40) reduction(max:error)
+            #pragma acc parallel loop independent collapse(2) vector vector_length(16) gang num_gangs(40)
             for (size_t i = 1; i < N-1; i++)
             {
                 
                 for (size_t j = 1; j < N-1; j++)
                 {
                     curmatrix[i*N+j]  = 0.25 * (prevmatrix[i*N+j+1] + prevmatrix[i*N+j-1] + prevmatrix[(i-1)*N+j] + prevmatrix[(i+1)*N+j]);
-                    error = fmax(error,fabs(curmatrix[i*N+j]-prevmatrix[i*N+j]));
                 }
             }
 
+            if ((iter+1) %10000 == 0){
+            error = 0.0;
+            #pragma acc parallel loop independent collapse(2) vector vector_length(16) gang num_gangs(40) reduction(max:error)
+            for (size_t i = 1; i < N-1; i++)
+            {   
+                for (size_t j = 1; j < N-1; j++)
+                {
+                    error = fmax(error,fabs(curmatrix[i*N+j]-prevmatrix[i*N+j]));
+                }
+            }
+            std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
+
+            }
             // pointer swap 
             double* temp = prevmatrix;
             prevmatrix = curmatrix;
             curmatrix = temp;
-            if ((iter+1) %10000 == 0){
-                std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
-
-            }
-
+            
+            
             
 
         iter++;
@@ -143,14 +152,15 @@ int main(int argc, char const *argv[])
                     for (size_t j = 0; j < N; j++)
                     {
                         /* code */
-                        std::cout << curmatrix[i*N+j] << ' ';
+                        std::cout << A[i*N+j] << ' ';
                         
                     }
                     std::cout << std::endl;
                 }
                 }
-    saveMatrixToFile(std::ref(curmatrix), N , "matrix.txt");
-
+    saveMatrixToFile(std::ref(A), N , "matrix.txt");
+    A = nullptr;
+    Anew = nullptr;
 
     
     return 0;

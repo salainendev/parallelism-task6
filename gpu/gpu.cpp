@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
-#include </opt/nvidia/hpc_sdk/Linux_x86_64/23.11/cuda/12.3/include/nvtx3/nvToolsExt.h>
 #include <chrono>
 namespace opt = boost::program_options;
 
@@ -20,7 +19,7 @@ double linearInterpolation(double x, double x1, double y1, double x2, double y2)
 
 
 
-void initMatrix(double* &arr ,int N){
+void initMatrix(std::unique_ptr<double[]> &arr ,int N){
         
           arr[0] = 10.0;
           arr[N-1] = 20.0;
@@ -66,9 +65,9 @@ int main(int argc, char const *argv[])
     // парсим аргументы
     opt::options_description desc("опции");
     desc.add_options()
-        ("accuracy",opt::value<double>(),"точность")
-        ("cellsCount",opt::value<int>(),"размер матрицы")
-        ("iterCount",opt::value<int>(),"количество операций")
+        ("accuracy",opt::value<double>()->default_value(1e-6),"точность")
+        ("cellsCount",opt::value<int>()->default_value(256),"размер матрицы")
+        ("iterCount",opt::value<int>()->default_value(1000000),"количество операций")
         ("help","помощь")
     ;
 
@@ -93,31 +92,48 @@ int main(int argc, char const *argv[])
     double error = 1.0;
     int iter = 0;
 
-    double* curmatrix = new double[N*N];
-    double* prevmatrix = new double[N*N];
-    initMatrix(curmatrix,N);
-    initMatrix(prevmatrix,N);
+    std::unique_ptr<double[]> A(new double[N*N]);
+    std::unique_ptr<double[]> Anew(new double[N*N]);
+
+
+    initMatrix(std::ref(A),N);
+    initMatrix(std::ref(Anew),N);
    
     auto start = std::chrono::high_resolution_clock::now();
+    double* curmatrix = A.get();
+    double* prevmatrix = Anew.get();
     
-    #pragma acc enter data copyin(error,prevmatrix[0:N*N],curmatrix[0:N*N])
-    
+    #pragma acc data copyin(error,prevmatrix[0:N*N],curmatrix[0:N*N])
+    {
     while (iter < countIter && iter<10000000 && error > accuracy){
-            error = 0.0;
-            #pragma acc update device(error) // провереное эксперементальным путём оптимальное количество банд и размер вектора для расчёта матрицы 1024^2
-            #pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(1024) reduction(max:error) present(curmatrix,prevmatrix)
+             // провереное эксперементальным путём оптимальное количество банд и размер вектора для расчёта матрицы 1024^2
+            #pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(1024) present(curmatrix,prevmatrix)
             for (size_t i = 1; i < N-1; i++)
             {
                 
                 for (size_t j = 1; j < N-1; j++)
                 {
                     curmatrix[i*N+j]  = 0.25 * (prevmatrix[i*N+j+1] + prevmatrix[i*N+j-1] + prevmatrix[(i-1)*N+j] + prevmatrix[(i+1)*N+j]);
-                    error = fmax(error,fabs(curmatrix[i*N+j]-prevmatrix[i*N+j]));
                 }
             }
 
     
+            if ((iter+1)%10000 == 0){
+                error = 0.0;
+                #pragma acc update device(error)
+                #pragma acc parallel loop independent collapse(2) vector vector_length(1024) gang num_gangs(256) reduction(max:error) present(curmatrix,prevmatrix)
+                for (size_t i = 1; i < N-1; i++)
+                {
+                    for (size_t j = 1; j < N-1; j++)
+                    {
+                        error = fmax(error,fabs(curmatrix[i*N+j]-prevmatrix[i*N+j]));
+                    }
+                    
+                }
+                
             #pragma acc update self(error)
+            std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
+            }
             
 
             double* temp = prevmatrix;
@@ -127,15 +143,14 @@ int main(int argc, char const *argv[])
 
             
 
-            if ((iter+1)%10000 == 0){
-            std::cout << "iteration: "<<iter+1 << ' ' <<"error: "<<error << std::endl;
-
-            }
 
         iter++;
 
 
     }
+    #pragma acc update self(curmatrix[0:N*N])
+    }
+
     
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = end - start;
@@ -143,9 +158,7 @@ int main(int argc, char const *argv[])
                 
     
     std::cout<<"time: " << time_s<<" error: "<<error << " iterarion: " << iter<<std::endl;
-    // std::cout << std::endl;
-    // for (size_t i = 0; i < N; i++)
-    #pragma acc update self(curmatrix[0:N*N])
+    
     if (N <=13){
         
         for (size_t i = 0; i < N; i++)
@@ -153,16 +166,18 @@ int main(int argc, char const *argv[])
             for (size_t j = 0; j < N; j++)
             {
                 /* code */
-                std::cout << curmatrix[i*N+j] << ' ';
+                std::cout << A[i*N+j] << ' ';
                 
             }
             std::cout << std::endl;
         }
     }
     saveMatrixToFile(std::ref(curmatrix), N , "matrix.txt");
-
+    A = nullptr;
+    Anew = nullptr;
 
     
-    #pragma acc exit data delete(error)
+    
+
     return 0;
 }

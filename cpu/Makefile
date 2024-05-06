@@ -1,14 +1,17 @@
-ARGS = -Minfo=all -I/opt/nvidia/hpc_sdk/Linux_x86_64/23.11/cuda/12.3/include/ -lboost_program_options
+INFO = -Minfo=all
+LIBS = -lboost_program_options
+HOST = -acc=host
+MULT = -acc=multicore
+CXX = pgc++
 
-all:
-	make serial
-	make multi
+all:serial multi
+	
 
 serial:
-	pgc++ -acc=host $(ARGS) -o $@ cpu.cpp
+	$(CXX) $(HOST) $(INFO) $(LIBS) -o $@ cpu.cpp
 
 multi:
-	pgc++ -acc=multicore $(ARGS) -o $@ cpu.cpp
+	$(CXX) $(MULT) $(INFO) $(LIBS) -o $@ cpu.cpp
 
 clean:all
 	rm serial multi
